@@ -1,0 +1,202 @@
+<button id="floating-timer-btn" style="background-color: #4e4e4e; color: #fff; border: none; padding: 12px 24px; font-size: 1rem; font-weight: 600; border-radius: 8px; cursor: pointer; box-shadow: 0 4px 6px rgba(0,0,0,0.1); transition: background 0.2s;">
+    ⏱️ Open Always-on-Top Timer
+</button>
+
+<script>
+(function() {
+    const btn = document.getElementById('floating-timer-btn');
+    let pipWindow = null;
+    let timerInterval = null;
+
+    const schedule = {
+        1: [
+            { name: "P1", start: "08:50", end: "09:45" },
+            { name: "P2", start: "09:50", end: "10:45" },
+            { name: "P3", start: "11:20", end: "12:15" },
+            { name: "AcMent", start: "12:20", end: "12:40" },
+            { name: "P4", start: "12:45", end: "13:40" },
+            { name: "P5", start: "14:15", end: "15:10" }
+        ],
+        4: [],
+        2: [
+            { name: "P1", start: "08:50", end: "09:55" },
+            { name: "P2", start: "10:00", end: "11:00" },
+            { name: "P3", start: "11:35", end: "12:35" },
+            { name: "P4", start: "12:40", end: "13:40" },
+            { name: "P5", start: "14:15", end: "15:10" }
+        ],
+        5: [],
+        3: [
+            { name: "P1", start: "09:05", end: "10:00" },
+            { name: "P2", start: "10:05", end: "11:00" },
+            { name: "P3", start: "11:35", end: "12:35" },
+            { name: "P4", start: "12:40", end: "13:40" },
+            { name: "P5", start: "14:15", end: "15:10" }
+        ]
+    };
+    schedule[4] = [...schedule[1]];
+    schedule[5] = [...schedule[2]];
+
+    const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+    function updateTimer(targetDoc) {
+        const now = new Date();
+        const currentDay = now.getDay();
+        const currentDayName = dayNames[currentDay];
+        
+        const bodyEl = targetDoc.body;
+        const headerEl = targetDoc.getElementById('timer-header');
+        const displayEl = targetDoc.getElementById('timer-display');
+        const footerEl = targetDoc.getElementById('timer-footer');
+
+        if (!headerEl || !displayEl || !footerEl) return;
+
+        if (!schedule[currentDay] || schedule[currentDay].length === 0) {
+            headerEl.textContent = currentDayName;
+            displayEl.textContent = "--:--";
+            footerEl.textContent = "No classes scheduled";
+            bodyEl.style.backgroundColor = "#c4deff"; // Reset to default blue
+            return;
+        }
+
+        const todayPeriods = schedule[currentDay];
+        const currentMinutes = (now.getHours() * 60) + now.getMinutes();
+        const currentSeconds = now.getSeconds();
+        let activePeriod = null;
+
+        for (let period of todayPeriods) {
+            const [startH, startM] = period.start.split(':').map(Number);
+            const [endH, endM] = period.end.split(':').map(Number);
+            const startTotalMinutes = (startH * 60) + startM;
+            const endTotalMinutes = (endH * 60) + endM;
+
+            if (currentMinutes >= startTotalMinutes && currentMinutes < endTotalMinutes) {
+                activePeriod = { name: period.name, endMinutes: endTotalMinutes };
+                break;
+            }
+        }
+
+        if (activePeriod) {
+            headerEl.textContent = `${currentDayName} (${activePeriod.name})`;
+            
+            // Calculate total seconds remaining until the actual END of the period
+            const currentTotalSeconds = (currentMinutes * 60) + currentSeconds;
+            const targetTotalSeconds = activePeriod.endMinutes * 60;
+            const totalSecondsLeft = targetTotalSeconds - currentTotalSeconds;
+
+            if (totalSecondsLeft > 0) {
+                const displayMins = Math.floor(totalSecondsLeft / 60);
+                const displaySecs = totalSecondsLeft % 60;
+                displayEl.textContent = `${String(displayMins).padStart(2, '0')}:${String(displaySecs).padStart(2, '0')}`;
+                
+                // Visual Color Phase Shift condition: 5 minutes = 300 seconds
+                if (totalSecondsLeft <= 300) {
+                    bodyEl.style.backgroundColor = "#f8fd7c"; // Warning yellow color
+                    footerEl.textContent = "Wrap-up time! Save work.";
+                } else {
+                    bodyEl.style.backgroundColor = "#c4deff"; // Standard blue color
+                    footerEl.textContent = "Time remaining in period";
+                }
+            } else {
+                displayEl.textContent = "00:00";
+                footerEl.textContent = "Period has ended.";
+                bodyEl.style.backgroundColor = "#c4deff";
+            }
+        } else {
+            headerEl.textContent = currentDayName;
+            displayEl.textContent = "--:--";
+            footerEl.textContent = "Break time / No active period";
+            bodyEl.style.backgroundColor = "#c4deff";
+        }
+    }
+
+    btn.addEventListener('click', async () => {
+        if (!('documentPictureInPicture' in window)) {
+            alert("Always-on-Top requires Document Picture-in-Picture support. Please try Google Chrome or Microsoft Edge on HTTPS.");
+            return;
+        }
+
+        if (pipWindow) {
+            pipWindow.close();
+            return;
+        }
+
+        try {
+            pipWindow = await window.documentPictureInPicture.requestWindow({
+                width: 420,
+                height: 240,
+            });
+
+            pipWindow.document.body.innerHTML = `
+                <div id="classroom-timer-container">
+                    <div id="timer-header">Loading...</div>
+                    <div id="timer-display">00:00</div>
+                    <div id="timer-footer">Time remaining in period</div>
+                </div>
+            `;
+
+            const style = pipWindow.document.createElement('style');
+            style.textContent = `
+                body {
+                    background-color: #c4deff;
+                    color: #4e4e4e;
+                    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                    margin: 0;
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    height: 100vh;
+                    overflow: hidden;
+                    transition: background-color 0.5s ease; /* Smooth fade shift between blue and yellow */
+                }
+                #classroom-timer-container {
+                    text-align: center;
+                    width: 100%;
+                    padding: 4vw;
+                    box-sizing: border-box;
+                }
+                #timer-header {
+                    font-size: 6vw;
+                    font-weight: 600;
+                    margin-bottom: 2vw;
+                    text-transform: uppercase;
+                    letter-spacing: 1px;
+                }
+                #timer-display {
+                    font-size: 18vw;
+                    font-weight: 700;
+                    font-variant-numeric: tabular-nums;
+                    margin: 1vw 0;
+                    line-height: 1;
+                }
+                #timer-footer {
+                    font-size: 3.8vw;
+                    font-weight: 500;
+                    opacity: 0.8;
+                    margin-top: 2vw;
+                    white-space: nowrap;
+                }
+                @media (min-width: 600px) {
+                    #timer-header { font-size: 2rem; }
+                    #timer-display { font-size: 6rem; }
+                    #timer-footer { font-size: 1.2rem; }
+                }
+            `;
+            pipWindow.document.head.appendChild(style);
+
+            updateTimer(pipWindow.document);
+            timerInterval = setInterval(() => updateTimer(pipWindow.document), 1000);
+
+            pipWindow.addEventListener('pagehide', () => {
+                clearInterval(timerInterval);
+                timerInterval = null;
+                pipWindow = null;
+            });
+
+        } catch (err) {
+            console.error("Failed to execute floating window engine:", err);
+            alert("Could not open the always-on-top window. Ensure your site uses HTTPS.");
+        }
+    });
+})();
+</script>
