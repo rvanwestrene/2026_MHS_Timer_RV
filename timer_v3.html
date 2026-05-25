@@ -1,0 +1,276 @@
+<button id="floating-timer-btn" 
+style="
+background-color: #4e4e4e; 
+color: #fff; 
+border: none; 
+padding: 12px; 
+font-size: 1rem; 
+font-weight: 600; 
+border-radius: 8px; 
+cursor: pointer; 
+box-shadow: 0 4px 6px rgba(0,0,0,0.1); 
+transition: background 0.2s;
+">
+    ⏱️ MHS Timer
+</button>
+
+<script>
+(function() {
+    const btn = document.getElementById('floating-timer-btn');
+    let pipWindow = null;
+    let timerInterval = null;
+
+    // Base core schedules without repeating elements
+    const coreSchedule = {
+        1: [ // Monday
+            { name: "Meeting", start: "08:25", end: "08:45" },
+            { name: "P1", start: "08:50", end: "09:45" },
+            { name: "P2", start: "09:50", end: "10:45" },
+            { name: "Interval", start: "10:45", end: "11:15", type: "break" },
+            { name: "P3", start: "11:20", end: "12:15" },
+            { name: "AcMent", start: "12:20", end: "12:40" },
+            { name: "P4", start: "12:45", end: "13:40" }
+        ],
+        2: [ // Tuesday
+            { name: "Meeting", start: "08:25", end: "08:45" },
+            { name: "P1", start: "08:50", end: "09:55" },
+            { name: "P2", start: "10:00", end: "11:00" },
+            { name: "Interval", start: "11:00", end: "11:30", type: "break" },
+            { name: "P3", start: "11:35", end: "12:35" },
+            { name: "P4", start: "12:40", end: "13:40" }
+        ],
+        3: [ // Wednesday
+            { name: "Epic", start: "08:25", end: "09:00" },
+            { name: "P1", start: "09:05", end: "10:00" },
+            { name: "P2", start: "10:05", end: "11:00" },
+            { name: "Interval", start: "11:00", end: "11:30", type: "break" },
+            { name: "P3", start: "11:35", end: "12:35" },
+            { name: "P4", start: "12:40", end: "13:40" }
+        ]
+    };
+
+    // Duplicate core structures for Thurs (Mon) and Fri (Tue)
+    coreSchedule[4] = JSON.parse(JSON.stringify(coreSchedule[1]));
+    coreSchedule[5] = JSON.parse(JSON.stringify(coreSchedule[2]));
+
+    // Programmatically append Lunch and Period 5 globally across all weekdays
+    for (let day = 1; day <= 5; day++) {
+        coreSchedule[day].push(
+            { name: "Lunch", start: "13:40", end: "14:10", type: "break" },
+            { name: "P5", start: "14:15", end: "15:10" }
+        );
+    }
+
+    // Helper function to dynamically insert 5-minute transition periods before specific classes
+    function addTransitions(dayPeriods) {
+        const fullSchedule = [];
+        // ADDED "AcMent" to this array so it generates a transition beforehand
+        const targetsForTransition = ["P1", "P2", "P3", "P4", "P5", "AcMent"];
+
+        for (let period of dayPeriods) {
+            if (targetsForTransition.includes(period.name)) {
+                const [h, m] = period.start.split(':').map(Number);
+                let transStartM = m - 5;
+                let transStartH = h;
+                if (transStartM < 0) {
+                    transStartM += 60;
+                    transStartH -= 1;
+                }
+                const startStr = `${String(transStartH).padStart(2, '0')}:${String(transStartM).padStart(2, '0')}`;
+                
+                fullSchedule.push({
+                    name: "Transition",
+                    start: startStr,
+                    end: period.start,
+                    type: "transition"
+                });
+            }
+            fullSchedule.push(period);
+        }
+        return fullSchedule;
+    }
+
+    // Generate complete schedule containing auto-calculated transitions
+    const schedule = {};
+    for (let day in coreSchedule) {
+        schedule[day] = addTransitions(coreSchedule[day]);
+    }
+
+    const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+    function updateTimer(targetDoc) {
+        const now = new Date();
+        const currentDay = now.getDay();
+        const currentDayName = dayNames[currentDay];
+        
+        const bodyEl = targetDoc.body;
+        const headerEl = targetDoc.getElementById('timer-header');
+        const displayEl = targetDoc.getElementById('timer-display');
+        const footerEl = targetDoc.getElementById('timer-footer');
+
+        if (!headerEl || !displayEl || !footerEl) return;
+
+        if (!schedule[currentDay] || schedule[currentDay].length === 0) {
+            headerEl.textContent = currentDayName;
+            displayEl.textContent = "--:--";
+            footerEl.textContent = "No classes scheduled";
+            bodyEl.style.backgroundColor = "#c4deff"; 
+            return;
+        }
+
+        const todayPeriods = schedule[currentDay];
+        const currentMinutes = (now.getHours() * 60) + now.getMinutes();
+        const currentSeconds = now.getSeconds();
+        let activePeriod = null;
+
+        for (let period of todayPeriods) {
+            const [startH, startM] = period.start.split(':').map(Number);
+            const [endH, endM] = period.end.split(':').map(Number);
+            const startTotalMinutes = (startH * 60) + startM;
+            const endTotalMinutes = (endH * 60) + endM;
+
+            if (currentMinutes >= startTotalMinutes && currentMinutes < endTotalMinutes) {
+                activePeriod = { 
+                    name: period.name, 
+                    endMinutes: endTotalMinutes, 
+                    type: period.type || "academic" 
+                };
+                break;
+            }
+        }
+
+        if (activePeriod) {
+            headerEl.textContent = `${currentDayName} (${activePeriod.name})`;
+            
+            const currentTotalSeconds = (currentMinutes * 60) + currentSeconds;
+            const targetTotalSeconds = activePeriod.endMinutes * 60;
+            const totalSecondsLeft = targetTotalSeconds - currentTotalSeconds;
+
+            if (totalSecondsLeft > 0) {
+                const displayMins = Math.floor(totalSecondsLeft / 60);
+                const displaySecs = totalSecondsLeft % 60;
+                displayEl.textContent = `${String(displayMins).padStart(2, '0')}:${String(displaySecs).padStart(2, '0')}`;
+                
+                // Color and messaging states engine
+                if (activePeriod.type === "break") {
+                    bodyEl.style.backgroundColor = "#bdfdb5"; // Green for break / lunch
+                    footerEl.textContent = "Rest / Fuel time!";
+                } else if (activePeriod.type === "transition") {
+                    bodyEl.style.backgroundColor = "#d9d9d9"; // Grey for transitions
+                    footerEl.textContent = "Time until class...";
+                } else {
+                    // Standard Academic / Meeting periods
+                    if (totalSecondsLeft <= 90) { 
+                        bodyEl.style.backgroundColor = "#ffbfbf"; // Red/Pink exit warning
+                        footerEl.textContent = "Exit task! Log your progress.";
+                    } else if (totalSecondsLeft <= 300) { 
+                        bodyEl.style.backgroundColor = "#f8fd7c"; // Yellow warning
+                        footerEl.textContent = "Wrap-up time! Save work.";
+                    } else { 
+                        bodyEl.style.backgroundColor = "#c4deff"; // Standard blue
+                        footerEl.textContent = "Time remaining in period";
+                    }
+                }
+            } else {
+                displayEl.textContent = "00:00";
+                footerEl.textContent = "Period has ended.";
+                bodyEl.style.backgroundColor = "#c4deff";
+            }
+        } else {
+            headerEl.textContent = currentDayName;
+            displayEl.textContent = "--:--";
+            footerEl.textContent = "Break time / No active period";
+            bodyEl.style.backgroundColor = "#c4deff";
+        }
+    }
+
+    btn.addEventListener('click', async () => {
+        if (!('documentPictureInPicture' in window)) {
+            alert("Always-on-Top requires Document Picture-in-Picture support. Please try Google Chrome or Microsoft Edge on HTTPS.");
+            return;
+        }
+
+        if (pipWindow) {
+            pipWindow.close();
+            return;
+        }
+
+        try {
+            pipWindow = await window.documentPictureInPicture.requestWindow({
+                width: 420,
+                height: 240,
+                });
+
+            pipWindow.document.body.innerHTML = `
+                <div id="classroom-timer-container">
+                    <div id="timer-header">Loading...</div>
+                    <div id="timer-display">00:00</div>
+                    <div id="timer-footer">Time remaining in period</div>
+                </div>
+            `;
+
+            const style = pipWindow.document.createElement('style');
+            style.textContent = `
+                body {
+                    background-color: #c4deff;
+                    color: #4e4e4e;
+                    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                    margin: 0;
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    height: 100vh;
+                    overflow: hidden;
+                    transition: background-color 0.5s ease;
+                }
+                #classroom-timer-container {
+                    text-align: center;
+                    width: 100%;
+                    padding: 4vw;
+                    box-sizing: border-box;
+                }
+                #timer-header {
+                    font-size: 6vw;
+                    font-weight: 600;
+                    margin-bottom: 2vw;
+                    text-transform: uppercase;
+                    letter-spacing: 1px;
+                }
+                #timer-display {
+                    font-size: 18vw;
+                    font-weight: 700;
+                    font-variant-numeric: tabular-nums;
+                    margin: 1vw 0;
+                    line-height: 1;
+                }
+                #timer-footer {
+                    font-size: 3.8vw;
+                    font-weight: 500;
+                    opacity: 0.8;
+                    margin-top: 2vw;
+                    white-space: nowrap;
+                }
+                @media (min-width: 600px) {
+                    #timer-header { font-size: 2rem; }
+                    #timer-display { font-size: 6rem; }
+                    #timer-footer { font-size: 1.2rem; }
+                }
+            `;
+            pipWindow.document.head.appendChild(style);
+
+            updateTimer(pipWindow.document);
+            timerInterval = setInterval(() => updateTimer(pipWindow.document), 1000);
+
+            pipWindow.addEventListener('pagehide', () => {
+                clearInterval(timerInterval);
+                timerInterval = null;
+                pipWindow = null;
+            });
+
+        } catch (err) {
+            console.error("Failed to execute floating window engine:", err);
+            alert("Could not open the always-on-top window. Ensure your site uses HTTPS.");
+        }
+    });
+})();
+</script>
